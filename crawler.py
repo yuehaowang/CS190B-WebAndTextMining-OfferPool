@@ -1,6 +1,6 @@
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
-from selenium.common.exceptions import NoSuchElementException
+from selenium.common.exceptions import NoSuchElementException, TimeoutException
 from selenium.webdriver.common.desired_capabilities import DesiredCapabilities
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
@@ -66,27 +66,35 @@ class Crawler:
 	def __init__(self):
 		self.browser = self._create_browser()
 
-		self.max_page = int(os.getenv('OFFERPOOL_CRAWLER_PAGE_NUM', 5))
+		self.start_page = int(os.getenv('OFFERPOOL_CRAWLER_START_PAGE', 1))
+		self.end_page = int(os.getenv('OFFERPOOL_CRAWLER_END_PAGE', 5))
 
 	def start(self, forum_url):
-		cur_page = 1
+		cur_page = self.start_page
 		num_crawled_posts = 0
 
 		start_time = time.time()
 
 		print(termstyl.header('Crawler started!\n'))
 
-		while cur_page <= self.max_page:
-			# open forum page
+		while cur_page <= self.end_page:
+			# url of forum page
 			page_url = forum_url % cur_page
 			# list of posts
 			posts = []
 
-			self.browser.get(page_url)
-			WebDriverWait(self.browser, PAGE_LOAD_TIMEOUT).until(EC.presence_of_element_located((By.ID, 'threadlist')))
+			try:
+				self.browser.get(page_url)
+				WebDriverWait(self.browser, PAGE_LOAD_TIMEOUT).until(EC.presence_of_element_located((By.ID, 'threadlist')))
+			except TimeoutException:
+				print(termstyl.warning('Cannot open page %d. Retrying...' % cur_page))
+				continue
 
 			# fetch all post items
-			res = self.browser.find_elements_by_css_selector('tbody[id^="normalthread_"] .%s' % ('new' if cur_page == 1 else 'common'))
+			res = self.browser.find_elements_by_css_selector('tbody[id^="normalthread_"] .%s' % 'common')
+
+			if not res:
+				res = self.browser.find_elements_by_css_selector('tbody[id^="normalthread_"] .%s' % 'new')
 
 			for item in res:
 				try:
@@ -115,13 +123,16 @@ class Crawler:
 
 					num_crawled_posts += 1
 
+					if num_crawled_posts % 100 == 0:
+						print(termstyl.okblue('Crawled %s posts' % num_crawled_posts))
+
 			cur_page += 1
 
 		# complete message
 		print(
 			termstyl.bold(termstyl.okgreen('Done.')),
 			termstyl.okblue('%.3f' % (time.time() - start_time)) + termstyl.okgreen(' seconds used.'),
-			termstyl.header('Total posts: %d, total pages: %d.' % (num_crawled_posts, cur_page))
+			termstyl.header('Total posts: %d, total pages: %d.' % (num_crawled_posts, cur_page - self.start_page))
 		)
 
 	def _create_browser(self):
@@ -156,8 +167,12 @@ class Crawler:
 			return '.'.join(slug.split('.')[0:-1])
 
 	def _crawl_offer(self, url):
-		self.browser.get(url)
-		WebDriverWait(self.browser, PAGE_LOAD_TIMEOUT).until(EC.presence_of_element_located((By.ID, 'postlist')))
+		try:
+			self.browser.get(url)
+			WebDriverWait(self.browser, PAGE_LOAD_TIMEOUT).until(EC.presence_of_element_located((By.ID, 'postlist')))
+		except:
+			print(termstyl.warning('Cannot open post %s' % url))
+			return
 
 		try:
 			profile = {
@@ -248,7 +263,7 @@ class Crawler:
 			except:
 				print(termstyl.fail('Cannot save post: %s' % url))
 
-		except NoSuchElementException:
+		except (NoSuchElementException, TimeoutException):
 			print(termstyl.warning('Post info missing: %s' % url))
 		except Exception as err:
 			raise err

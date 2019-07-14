@@ -10,4 +10,4 @@ Course project of Web and Text Mining
 
 3. Run the crawler: `python crawler.py`
 
-You can set an environment variable `OFFERPOOL_CRAWLER_PAGE_NUM` to specify the number of pages to scrape (default: 5).
+You can set an environment variable `OFFERPOOL_CRAWLER_START_PAGE` and `OFFERPOOL_CRAWLER_END_PAGE` to specify the beginning page and the end page to scrape (default: page 1 - page 5).
