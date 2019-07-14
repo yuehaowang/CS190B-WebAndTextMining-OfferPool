@@ -6,6 +6,8 @@ Course project of Web and Text Mining
 
 1. You will need to download the ChromeDriver executable from http://chromedriver.storage.googleapis.com/index.html
 
-2. Install dependencies: selenium
+2. Install dependencies: `selenium`. If you have pipenv installed, you can run `pipenv install` to install all dependencies.
 
 3. Run the crawler: `python crawler.py`
+
+You can set an environment variable `OFFERPOOL_CRAWLER_PAGE_NUM` to specify the number of pages to scrape (default: 5).

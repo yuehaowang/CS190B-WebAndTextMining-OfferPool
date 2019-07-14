@@ -1,13 +1,14 @@
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
+from selenium.common.exceptions import NoSuchElementException
+from selenium.webdriver.common.desired_capabilities import DesiredCapabilities
+from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.common.by import By
-from selenium.common.exceptions import TimeoutException, NoSuchElementException
-from selenium.webdriver.common.desired_capabilities import DesiredCapabilities
 import re
-import sys
+import os
 import json
+import time
 
 
 '''
@@ -18,8 +19,44 @@ FORUM_URLS = [
 	'http://bbs.gter.net/forum-49-%s.html'
 ]
 
-PAGE_TIMEOUT = 15
+PAGE_LOAD_TIMEOUT = 5
 
+'''
+Terminal text style
+'''
+
+class termstyl:
+	HEADER = '\033[95m'
+	OKBLUE = '\033[94m'
+	OKGREEN = '\033[92m'
+	WARNING = '\033[93m'
+	FAIL = '\033[91m'
+	ENDC = '\033[0m'
+	BOLD = '\033[1m'
+
+	@staticmethod
+	def bold(txt):
+		return termstyl.BOLD + txt + termstyl.ENDC
+
+	@staticmethod
+	def header(txt):
+		return termstyl.HEADER + txt + termstyl.ENDC
+
+	@staticmethod
+	def okgreen(txt):
+		return termstyl.OKGREEN + txt + termstyl.ENDC
+
+	@staticmethod
+	def okblue(txt):
+		return termstyl.OKBLUE + txt + termstyl.ENDC
+
+	@staticmethod
+	def fail(txt):
+		return termstyl.FAIL + txt + termstyl.ENDC
+
+	@staticmethod
+	def warning(txt):
+		return termstyl.WARNING + txt + termstyl.ENDC
 
 '''
 Crawler class
@@ -27,14 +64,17 @@ Crawler class
 
 class Crawler:
 	def __init__(self):
-		opt = Options()
-		# opt.add_argument('--headless')
 		self.browser = self._create_browser()
 
-		self.max_page = 1
+		self.max_page = int(os.getenv('OFFERPOOL_CRAWLER_PAGE_NUM', 5))
 
 	def start(self, forum_url):
 		cur_page = 1
+		num_crawled_posts = 0
+
+		start_time = time.time()
+
+		print(termstyl.header('Crawler started!\n'))
 
 		while cur_page <= self.max_page:
 			# open forum page
@@ -43,17 +83,23 @@ class Crawler:
 			posts = []
 
 			self.browser.get(page_url)
+			WebDriverWait(self.browser, PAGE_LOAD_TIMEOUT).until(EC.presence_of_element_located((By.ID, 'threadlist')))
 
 			# fetch all post items
-			res = self.browser.find_elements_by_css_selector('tbody[id^="normalthread_"] .new')
+			res = self.browser.find_elements_by_css_selector('tbody[id^="normalthread_"] .%s' % ('new' if cur_page == 1 else 'common'))
+
 			for item in res:
 				try:
 					tag_elem = item.find_element_by_css_selector('em')
 					tag_txt = tag_elem.text
 				except:
 					tag_txt = ''
+					print(termstyl.warning('No post tag: %s' % item.text))
 
-				title_elem = item.find_element_by_css_selector('a.xst')
+				try:
+					title_elem = item.find_element_by_css_selector('a.xst')
+				except Exception as err:
+					print(termstyl.fail('Post link not found: %s' % item.text))
 
 				posts.append({
 					'tag_txt': tag_txt,
@@ -64,28 +110,58 @@ class Crawler:
 			# crawl each post
 			for o in posts:
 				if re.match(r'^\[Offer.+\]', o['tag_txt']):  # an offer post
+					print('%s: %s' % (termstyl.bold('Crawling'), o['title_url']))
 					self._crawl_offer(o['title_url'])
+
+					num_crawled_posts += 1
 
 			cur_page += 1
 
+		# complete message
+		print(
+			termstyl.bold(termstyl.okgreen('Done.')),
+			termstyl.okblue('%.3f' % (time.time() - start_time)) + termstyl.okgreen(' seconds used.'),
+			termstyl.header('Total posts: %d, total pages: %d.' % (num_crawled_posts, cur_page))
+		)
+
 	def _create_browser(self):
 		opt = Options()
-		# disable js
-		opt.add_experimental_option( "prefs",{'profile.managed_default_content_settings.javascript': 2})
+		print(termstyl.okblue('Creating web driver...'))
+
+		# page load strategy: none
+		caps = DesiredCapabilities().CHROME
+		caps['pageLoadStrategy'] = 'none'
+		print(termstyl.okblue('Web driver pageLoadStrategy: none'))
+
 		# headless mode
-		# opt.add_argument('--headless')
+		opt.headless = True
+		opt.add_argument('--disable-gpu')
+		print(termstyl.okblue('Web driver: run in headless mode'))
+
 		browser = webdriver.Chrome(
 			executable_path='./chromedriver',
-			chrome_options=opt
+			desired_capabilities=caps,
+			options=opt
 		)
+		print(termstyl.okblue('Web driver created.'))
 
 		return browser
 
+	@staticmethod
+	def _get_post_name(url):
+		tokens = url.split('/')
+
+		if len(tokens) > 1:
+			slug = tokens[-1]
+			return '.'.join(slug.split('.')[0:-1])
+
 	def _crawl_offer(self, url):
 		self.browser.get(url)
+		WebDriverWait(self.browser, PAGE_LOAD_TIMEOUT).until(EC.presence_of_element_located((By.ID, 'postlist')))
 
 		try:
 			profile = {
+				'url': url,
 				'offers': [],
 				'person': {}
 			}
@@ -161,11 +237,19 @@ class Crawler:
 
 				profile['person']['others'] = other_info
 
-			r = json.dumps(profile, ensure_ascii=False)
-			print(r)
+			# extract post name from slug
+			try:
+				post_name = self._get_post_name(url)
+				if post_name:
+					# save data
+					with open('data/%s.json' % post_name, 'w+') as f:
+						r = json.dumps(profile, ensure_ascii=False, indent=4)
+						f.write(r)
+			except:
+				print(termstyl.fail('Cannot save post: %s' % url))
 
 		except NoSuchElementException:
-			pass
+			print(termstyl.warning('Post info missing: %s' % url))
 		except Exception as err:
 			raise err
 
@@ -173,7 +257,7 @@ class Crawler:
 		self.browser.close()
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
 	crawler = Crawler()
 	for url in FORUM_URLS:
 		crawler.start(url)
