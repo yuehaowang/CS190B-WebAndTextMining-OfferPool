@@ -72,6 +72,8 @@ class Crawler:
 	def start(self, forum_url):
 		cur_page = self.start_page
 		num_crawled_posts = 0
+		retry_times = 0
+		max_retry_times = 3
 
 		start_time = time.time()
 
@@ -86,9 +88,17 @@ class Crawler:
 			try:
 				self.browser.get(page_url)
 				WebDriverWait(self.browser, PAGE_LOAD_TIMEOUT).until(EC.presence_of_element_located((By.ID, 'threadlist')))
+				WebDriverWait(self.browser, PAGE_LOAD_TIMEOUT).until(EC.presence_of_element_located((By.CLASS_NAME, 'f-main-footer')))
 			except TimeoutException:
-				print(termstyl.warning('Cannot open page %d. Retrying...' % cur_page))
+				if retry_times < max_retry_times:
+					retry_times += 1
+					print(termstyl.warning('Cannot open page %d. Retrying...' % cur_page))
+				else:
+					retry_times = 0
+					cur_page += 1
+
 				continue
+
 
 			# fetch all post items
 			res = self.browser.find_elements_by_css_selector('tbody[id^="normalthread_"] .%s' % 'common')
@@ -130,6 +140,7 @@ class Crawler:
 
 		# complete message
 		print(
+			'\n',
 			termstyl.bold(termstyl.okgreen('Done.')),
 			termstyl.okblue('%.3f' % (time.time() - start_time)) + termstyl.okgreen(' seconds used.'),
 			termstyl.header('Total posts: %d, total pages: %d.' % (num_crawled_posts, cur_page - self.start_page))
@@ -175,104 +186,103 @@ class Crawler:
 			print(termstyl.warning('Cannot open post %s' % url))
 			return False
 
+		profile = {
+			'url': url,
+			'offers': [],
+			'person': {}
+		}
+
+		# read offer information
+		offer_res = self.browser.find_elements_by_css_selector('table[summary^="offer"]')
+
+		if len(offer_res) < 1:
+			print(termstyl.warning('Offer info missing: %s, page ignored' % url))
+			return False
+
+		for t in offer_res:
+			offer = {}
+			lines = t.text.split('\n')
+
+			for ln in lines:
+				ln_tokens = ln.split(': ')
+
+				if len(ln_tokens) < 2:
+					continue
+
+				field_name = ln_tokens[0]
+				value = ': '.join(ln_tokens[1:])
+				if field_name == '申请学校':
+					field_name = 'school'
+				elif field_name == '学位':
+					field_name = 'degree'
+				elif field_name == '专业':
+					field_name = 'major'
+				elif field_name == '申请结果':
+					field_name = 'result'
+				elif field_name == '入学年份':
+					field_name = 'enroll_time'
+				elif field_name == '入学学期':
+					field_name = 'enroll_term'
+				else:
+					continue
+
+				offer[field_name] = value
+
+			profile['offers'].append(offer)
+
+		# read person information
 		try:
-			profile = {
-				'url': url,
-				'offers': [],
-				'person': {}
-			}
+			person_tlb = self.browser.find_element_by_css_selector('table[summary^="个人情况"]')
+			lines = person_tlb.text.split('\n')
+			other_info = ''
 
-			# read offer information
-			offer_res = self.browser.find_elements_by_css_selector('table[summary^="offer"]')
+			for ln in lines:
+				ln_tokens = ln.split(': ')
 
-			if len(offer_res) < 1:
-				print(termstyl.warning('Offer info missing: %s, page ignored' % url))
-				return False
+				if len(ln_tokens) < 2:
+					continue
 
-			for t in offer_res:
-				offer = {}
-				lines = t.text.split('\n')
+				field_name = ln_tokens[0]
+				value = ': '.join(ln_tokens[1:])
+				if field_name == 'TOEFL':
+					field_name = 'toefl'
+				elif field_name == 'GRE':
+					field_name = 'gre'
+				elif field_name == 'IELTS':
+					field_name = 'ielts'
+				elif field_name == '本科学校档次':
+					field_name = 'undergra_school'
+				elif field_name == '本科专业':
+					field_name = 'undergra_major'
+				elif field_name == '本科成绩和算法、排名':
+					field_name = 'undergra_grade'
+				elif field_name == '研究生专业':
+					field_name = 'graduate_major'
+				elif field_name == '研究生学校档次':
+					field_name = 'graduate_school'
+				elif field_name == '研究生成绩和算法、排名':
+					field_name = 'graduate_grade'
+				else:
+					other_info += value + '\n'
+					continue
 
-				for ln in lines:
-					ln_tokens = ln.split(': ')
+				profile['person'][field_name] = value
 
-					if len(ln_tokens) < 2:
-						continue
-
-					field_name = ln_tokens[0]
-					value = ': '.join(ln_tokens[1:])
-					if field_name == '申请学校':
-						field_name = 'school'
-					elif field_name == '学位':
-						field_name = 'degree'
-					elif field_name == '专业':
-						field_name = 'major'
-					elif field_name == '申请结果':
-						field_name = 'result'
-					elif field_name == '入学年份':
-						field_name = 'enroll_time'
-					elif field_name == '入学学期':
-						field_name = 'enroll_term'
-					else:
-						continue
-
-					offer[field_name] = value
-					profile['offers'].append(offer)
-
-			# read person information
-			person_res = self.browser.find_elements_by_css_selector('table[summary^="个人情况"]')
-			for t in person_res:
-				lines = t.text.split('\n')
-				other_info = ''
-
-				for ln in lines:
-					ln_tokens = ln.split(': ')
-
-					if len(ln_tokens) < 2:
-						continue
-
-					field_name = ln_tokens[0]
-					value = ': '.join(ln_tokens[1:])
-					if field_name == 'TOEFL':
-						field_name = 'toefl'
-					elif field_name == 'GRE':
-						field_name = 'gre'
-					elif field_name == 'IELTS':
-						field_name = 'ielts'
-					elif field_name == '本科学校档次':
-						field_name = 'undergra_school'
-					elif field_name == '本科专业':
-						field_name = 'undergra_major'
-					elif field_name == '本科成绩和算法、排名':
-						field_name = 'undergra_grade'
-					elif field_name == '研究生专业':
-						field_name = 'graduate_major'
-					elif field_name == '研究生学校档次':
-						field_name = 'graduate_school'
-					elif field_name == '研究生成绩和算法、排名':
-						field_name = 'graduate_grade'
-					else:
-						other_info += value + '\n'
-
-						continue
-
-					profile['person'][field_name] = value
-
-				profile['person']['others'] = other_info
-
-			try:
-				# extract post name from slug
-				post_name = self._get_post_name(url)
-				if post_name:
-					# save data
-					with open('data/%s.json' % post_name, 'w+') as f:
-						r = json.dumps(profile, ensure_ascii=False, indent=4)
-						f.write(r)
-			except:
-				print(termstyl.fail('Cannot save post: %s' % url))
+			profile['person']['others'] = other_info
 
 		except (NoSuchElementException, TimeoutException):
-			print(termstyl.warning('Post info missing: %s' % url))
+			print(termstyl.warning('Person info missing: %s' % url))
+
+		try:
+			# extract post name from slug
+			post_name = self._get_post_name(url)
+			if post_name:
+				# save data
+				with open('data/%s.json' % post_name, 'w+') as f:
+					r = json.dumps(profile, ensure_ascii=False, indent=4)
+					f.write(r)
+		except:
+			print(termstyl.fail('Cannot save post: %s' % url))
 
 		return True
 
