@@ -19,7 +19,7 @@ FORUM_URLS = [
 	'http://bbs.gter.net/forum-49-%s.html'
 ]
 
-PAGE_LOAD_TIMEOUT = 5
+PAGE_LOAD_TIMEOUT = int(os.getenv('OFFERPOOL_CRAWLER_PAGE_LOAD_TIMEOUT', 5))
 
 '''
 Terminal text style
@@ -119,11 +119,11 @@ class Crawler:
 			for o in posts:
 				if re.match(r'^\[Offer.+\]', o['tag_txt']):  # an offer post
 					print('%s: %s' % (termstyl.bold('Crawling'), o['title_url']))
-					self._crawl_offer(o['title_url'])
 
-					num_crawled_posts += 1
+					if self._crawl_offer(o['title_url']):
+						num_crawled_posts += 1
 
-					if num_crawled_posts % 100 == 0:
+					if num_crawled_posts % 50 == 0:
 						print(termstyl.okblue('Crawled %s posts' % num_crawled_posts))
 
 			cur_page += 1
@@ -169,10 +169,11 @@ class Crawler:
 	def _crawl_offer(self, url):
 		try:
 			self.browser.get(url)
-			WebDriverWait(self.browser, PAGE_LOAD_TIMEOUT).until(EC.presence_of_element_located((By.ID, 'postlist')))
+			WebDriverWait(self.browser, PAGE_LOAD_TIMEOUT).until(EC.presence_of_element_located((By.ID, 'f_pst')))
+			WebDriverWait(self.browser, PAGE_LOAD_TIMEOUT).until(EC.presence_of_element_located((By.CLASS_NAME, 'f-main-footer')))
 		except:
 			print(termstyl.warning('Cannot open post %s' % url))
-			return
+			return False
 
 		try:
 			profile = {
@@ -183,6 +184,11 @@ class Crawler:
 
 			# read offer information
 			offer_res = self.browser.find_elements_by_css_selector('table[summary^="offer"]')
+
+			if len(offer_res) < 1:
+				print(termstyl.warning('Offer info missing: %s, page ignored' % url))
+				return False
+
 			for t in offer_res:
 				offer = {}
 				lines = t.text.split('\n')
@@ -231,6 +237,8 @@ class Crawler:
 						field_name = 'toefl'
 					elif field_name == 'GRE':
 						field_name = 'gre'
+					elif field_name == 'IELTS':
+						field_name = 'ielts'
 					elif field_name == '本科学校档次':
 						field_name = 'undergra_school'
 					elif field_name == '本科专业':
@@ -252,8 +260,8 @@ class Crawler:
 
 				profile['person']['others'] = other_info
 
-			# extract post name from slug
 			try:
+				# extract post name from slug
 				post_name = self._get_post_name(url)
 				if post_name:
 					# save data
@@ -265,8 +273,8 @@ class Crawler:
 
 		except (NoSuchElementException, TimeoutException):
 			print(termstyl.warning('Post info missing: %s' % url))
-		except Exception as err:
-			raise err
+
+		return True
 
 	def close(self):
 		self.browser.close()
