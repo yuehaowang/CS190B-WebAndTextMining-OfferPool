@@ -67,7 +67,7 @@ class Crawler:
 		self.browser = self._create_browser()
 
 		self.start_page = int(os.getenv('OFFERPOOL_CRAWLER_START_PAGE', 1))
-		self.end_page = int(os.getenv('OFFERPOOL_CRAWLER_END_PAGE', 5))
+		self.end_page = int(os.getenv('OFFERPOOL_CRAWLER_END_PAGE', 100))
 
 	def start(self, forum_url):
 		cur_page = self.start_page
@@ -80,7 +80,7 @@ class Crawler:
 		while cur_page <= self.end_page:
 			# url of forum page
 			page_url = forum_url % cur_page
-			# list of posts
+			# list of posts 
 			posts = []
 
 			try:
@@ -150,7 +150,7 @@ class Crawler:
 		print(termstyl.okblue('Web driver: run in headless mode'))
 
 		browser = webdriver.Chrome(
-			executable_path='./chromedriver',
+			executable_path='C:/Users/Nizhenghao/Desktop/WebAndTextMining/OfferPool/chromedriver.exe',
 			desired_capabilities=caps,
 			options=opt
 		)
@@ -265,7 +265,7 @@ class Crawler:
 				post_name = self._get_post_name(url)
 				if post_name:
 					# save data
-					with open('data/%s.json' % post_name, 'w+') as f:
+					with open('C:/Users/Nizhenghao/Desktop/WebAndTextMining/OfferPool/data/%s.json' % post_name, 'w+') as f:
 						r = json.dumps(profile, ensure_ascii=False, indent=4)
 						f.write(r)
 			except:
